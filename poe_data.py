@@ -1,5 +1,6 @@
 import csv
 import time
+import random
 import requests
 from bs4 import BeautifulSoup
 
@@ -51,7 +52,6 @@ def get_abil_data(url):
     data['Ability Name'] = header.get_text()
 
 
-
 def write_to_csv(data, file_path, fieldnames):
     '''
     Writes data to a CSV document, using fieldnames argument
@@ -68,10 +68,16 @@ def main():
                  for abil_url in get_abil_urls(subcat_url)]
     # now have one url per ability
     abil_data = [get_abil_data(url) for url in abil_urls]
+    fieldnames = [k for row in abil_data for k in row.keys()]
+
+
+def test():
+    subcat_urls = get_subcat_urls(ABIL_PAGE)
+    abil_urls = get_abil_urls(random.choice(subcat_urls))
+    abil_data = [get_abil_data(url) for url in abil_urls]
+    fieldnames = [k for row in abil_data for k in row.keys()]
 
 
 if __name__ == '__main__':
     # main()
-    data = get_abil_data(url)
-    for k, v in data:
-        print('{}: {}'.format(k, v))
+    test()
