@@ -1,3 +1,5 @@
+import re
+import os
 import csv
 import time
 import random
@@ -9,10 +11,16 @@ MAIN_URL = 'http://pillarsofeternity.gamepedia.com'
 ABIL_SUB = '/Category:Abilities'
 ABIL_PAGE = '{}{}'.format(MAIN_URL, ABIL_SUB)
 
+HAS_RE = re.compile(r'^\[\[[a-z\s]+::')
+assert HAS_RE.match('[[has damage type::Crush]]')
+assert HAS_RE.match('[[has defense::Reflex]]')
+
 SUBCAT_ID = 'mw-subcategories'
 SUBCAT_LINK_ID = 'CategoryTreeLabel CategoryTreeLabelNs14 CategoryTreeLabelCategory'
 
 CAT_ID = 'mw-pages'
+
+CSV_PATH = os.path.join('./', 'poe_abil_data.csv')
 
 
 def soup_from_url(url):
@@ -41,15 +49,25 @@ def get_abil_urls(url):
 
 
 def get_abil_data(url):
+    print('Getting ability data from {}'.format(url))
     page_soup = soup_from_url(url)
     table_div = page_soup.find('table', class_='infobox')
-
+    if not table_div:
+        print('Table Div not found at {}'.format(url))
+        return {}
     rows = [r.find_all('td') for r in table_div.find_all('tr')]
-    tuples = [(r[0].get_text(), r[1].get_text()) for r in rows if len(r) == 2]
-    data = dict(tuples)
-
+    data = dict([tuple(map(get_strip, r)) for r in rows if len(r) == 2])
     header = table_div.find('th', class_='above')
-    data['Ability Name'] = header.get_text()
+    data['Ability Name'] = get_strip(header)
+    return data
+
+
+def get_strip(element):
+    text = element.get_text().strip('\n').strip()
+    match = HAS_RE.match(text)
+    if match:
+        text = text.strip(match.group()).strip(']]')
+    return text
 
 
 def write_to_csv(data, file_path, fieldnames):
@@ -57,8 +75,9 @@ def write_to_csv(data, file_path, fieldnames):
     Writes data to a CSV document, using fieldnames argument
     constant as column headers.
     '''
-    with open(file_path, 'w') as output_csv:
+    with open(file_path, 'wb') as output_csv:
         writer = csv.DictWriter(output_csv, fieldnames)
+        writer.writeheader()
         writer.writerows(data)
 
 
@@ -74,9 +93,15 @@ def main():
 def test():
     subcat_urls = get_subcat_urls(ABIL_PAGE)
     abil_urls = get_abil_urls(random.choice(subcat_urls))
-    abil_data = [get_abil_data(url) for url in abil_urls]
-    fieldnames = [k for row in abil_data for k in row.keys()]
-
+    random.shuffle(abil_urls)
+    abil_data = [get_abil_data(url) for url in abil_urls[:10]]
+    fieldnames = {k for row in abil_data for k in row.keys()}
+    # for d in abil_data:
+    #     print('-------------------')
+    #     for k, v in d.items():
+    #         print('{}: {}'.format(k, v))
+    write_to_csv(abil_data, CSV_PATH, fieldnames)
+    print('Fieldnames:\n{}'.format(fieldnames))
 
 if __name__ == '__main__':
     # main()
