@@ -62,19 +62,22 @@ def parse_args():
                         'random class.')
 
     subparser = parser.add_subparsers(help='Subcommands help.')
-    scrape_parser = subparser.add_parser('scrape', help='Scrape data from wiki '
-                                         'to update local data.')
+
+    # "scrape" subcommand and arguments
+    scrape_parser = subparser.add_parser('scrape', help='Scrape data from '
+                                         'wiki to update local data.')
     scrape_parser.set_defaults(func=scrape_wiki)
     scrape_parser.add_argument('-o', '--overwrite', action='store_true',
                                help='Overwrite local data with scraped data.')
 
+    # "query" subcommand and arguments
     query_parser = subparser.add_parser('query', help='Query local data.')
     query_parser.set_defaults(func=query)
     query_parser.add_argument('-n', '--name', type=str,
                               help='Filter on a specific ability by name.')
     query_parser.add_argument('-c', '--classes', type=str, nargs='*',
                               default=CLASSES,
-                              help='Filter on specific character classes. Separate '
+                              help='Filter on specific char classes. Separate '
                               'classes by spaces, e.g. "Wizard monk".')
     query_parser.add_argument('-t', '--target', type=str,
                               help='Filter on a specific target type.')
@@ -129,8 +132,9 @@ def query(file_path, name=None, classes=CLASSES, damage_types=DAMAGE_TYPES,
             ]
     print('Query Results:')
     for row in data:
-        for pair in row:
-            print(': '.join(pair))
+        for pair in row.items():
+            if pair[1]:
+                print(': '.join(pair))
 
 
 def scrape_wiki(file_path, classes=CLASSES, num=9999,
@@ -190,7 +194,7 @@ def get_abil_data(url):
     table_div = page_soup.find('table', class_='infobox')
     if not table_div:
         print('Table Div not found at {}'.format(url))
-        return data
+        return '', data
 
     header = table_div.find('th', class_='above')
     abil_name = get_text(header)
