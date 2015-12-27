@@ -1,3 +1,9 @@
+# to do:
+# regexes for partial/non case sensitive match of classes, defenses etc
+# better result printing
+# nice formatted excel data?
+
+
 import re
 import os
 import csv
@@ -31,7 +37,7 @@ CLASSES = [
     'Priest', 'Ranger', 'Rogue', 'Wizard'
 ]
 DAMAGE_TYPES = [
-    'Burn', 'Freeze', 'Shock', 'Corrode', 'Pierce', 'Crush', 'Slash'
+    'Burn', 'Freeze', 'Shock', 'Corrode', 'Pierce', 'Crush', 'Slash', 'Raw'
 ]
 DEFENSES = [
     'Deflection', 'Fortitude', 'Reflex', 'Will'
@@ -55,11 +61,6 @@ def parse_args():
                         help='Run in test mode, finding 10 abilities of a '
                         'random class.')
 
-    parser.add_argument('-c', '--classes', type=str, nargs='*',
-                        default=CLASSES,
-                        help='Filter on specific character classes. Separate '
-                        'classes by spaces, e.g. "Wizard monk".')
-
     subparser = parser.add_subparsers(help='Subcommands help.')
     scrape_parser = subparser.add_parser('scrape', help='Scrape data from wiki '
                                          'to update local data.')
@@ -71,6 +72,10 @@ def parse_args():
     query_parser.set_defaults(func=query)
     query_parser.add_argument('-n', '--name', type=str,
                               help='Filter on a specific ability by name.')
+    query_parser.add_argument('-c', '--classes', type=str, nargs='*',
+                              default=CLASSES,
+                              help='Filter on specific character classes. Separate '
+                              'classes by spaces, e.g. "Wizard monk".')
     query_parser.add_argument('-t', '--target', type=str,
                               help='Filter on a specific target type.')
     query_parser.add_argument('-D', '--damage-types', type=str, nargs='*',
@@ -110,7 +115,8 @@ def query(file_path, name=None, classes=CLASSES, damage_types=DAMAGE_TYPES,
     data = read_from_csv(file_path)
     if name:
         try:
-            return data[name]
+            print(data[name])
+            return
         except KeyError:
             raise KeyError('Ability named "{}" is not found in the database.'
                            ''.format(name))
@@ -119,7 +125,9 @@ def query(file_path, name=None, classes=CLASSES, damage_types=DAMAGE_TYPES,
             and row['Class'] in classes
             and row['Damage type'] in damage_types
             and row['Defended by'] in defenses
-            and row['Area/Target'] in targets]
+            # and row['Area/Target'] in targets
+            ]
+    print('Query Results:')
     for row in data:
         for pair in row:
             print(': '.join(pair))
