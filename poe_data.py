@@ -20,13 +20,10 @@ CLASS_ABIL_SUB = '_'.join((CAT_SUB, 'abilities'))
 ABIL_PAGE = CAT_SUB.format('Abilities')
 TALENT_PAGE = CAT_SUB.format('Talents')
 
-HAS_RE = re.compile(r'(^\[\[[A-Za-z\s]+::)|\]\]')
-assert HAS_RE.match('[[has defense::fortitude]]')
-assert HAS_RE.match('[[has damage type::Crush]]')
-assert HAS_RE.match('[[has defense::Reflex]]')
-
 CHAR_CLASS_ID = 'mw-subcategories'
-CHAR_CLASS_LINK_ID = 'CategoryTreeLabel CategoryTreeLabelNs14 CategoryTreeLabelCategory'
+CHAR_CLASS_LINK_ID = ' '.join(('CategoryTreeLabel',
+                               'CategoryTreeLabelNs14',
+                               'CategoryTreeLabelCategory'))
 CAT_ID = 'mw-pages'
 
 CSV_PATH = os.path.join('./', 'poe_abil_data.csv')
@@ -44,6 +41,11 @@ DEFENSES = [
 TARGETS = [
     'AoE', 'Caster', 'Target'
 ]
+
+HAS_RE = re.compile(r'(^\[\[[A-Za-z\s]+::)|\]\]')
+assert HAS_RE.match('[[has defense::fortitude]]')
+assert HAS_RE.match('[[has damage type::Crush]]')
+assert HAS_RE.match('[[has defense::Reflex]]')
 
 EFFECTS_KEY_PATTERN = re.compile(r'^Effect(s)?$', re.I)
 LEVEL_KEY_PATTERN = re.compile(r'^(Power|Spell|Invocation) level$', re.I)
@@ -65,9 +67,6 @@ KEY_PATTERNS = {
     RESOURCE_KEY_PATTERN: lambda k, v: ('Resources', ' '.join((v, k))),
     NULL_KEY_PATTERN: lambda k, v: ('', ''),
 }
-
-# def get_talent_class(match):
-#     return match.group('class')
 
 
 class ArgMatch(argparse.Action):
