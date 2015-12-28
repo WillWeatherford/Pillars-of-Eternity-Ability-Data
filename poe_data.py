@@ -46,10 +46,15 @@ TARGETS = [
     'AoE', 'Caster', 'Target'
 ]
 
-IGNORE_KEYS = ['Internal name']
+LEVEL_KEY_PATTERN = re.compile(r'(Power|Spell|Invocation) level', re.I)
+DEFENSE_KEY_PATTERN = re.compile(r'(Effect|Damage) defended by', re.I)
+NULL_KEY_PATTERN = re.compile(r"(Internal name|')")
 
-# "'Damage defended by', Effect defended by" - > defended by
-# 'Power level' 'Spell level' Invocation level' -> Ability level
+KEY_PATTERNS = {
+    LEVEL_KEY_PATTERN: 'Ability level',
+    DEFENSE_KEY_PATTERN: 'Defended by',
+    NULL_KEY_PATTERN: '',
+}
 
 
 class ArgMatch(argparse.Action):
@@ -73,9 +78,6 @@ def parse_args():
         description='Take specifications on PoE data to find.')
     parser.add_argument('-A', '--argcheck', action='store_true',
                         help='Argument input check only.')
-    parser.add_argument('-T', '--test', action='store_true',
-                        help='Run in test mode, finding 10 abilities of a '
-                        'random class.')
 
     subparser = parser.add_subparsers(help='Subcommands help.')
 
@@ -83,6 +85,9 @@ def parse_args():
     scrape_parser = subparser.add_parser('scrape', help='Scrape data from '
                                          'wiki to update local data.')
     scrape_parser.set_defaults(func=scrape_wiki)
+    scrape_parser.add_argument('-T', '--test', action='store_true',
+                               help='Run in test mode, finding 10 abilities '
+                               'of a random class.')
     scrape_parser.add_argument('-o', '--overwrite', action='store_true',
                                help='Overwrite local data with scraped data.')
 
@@ -226,9 +231,11 @@ def get_abil_data(url):
     rows = [r.find_all('td') for r in table_div.find_all('tr')]
     for row in rows:
         if len(row) == 2:
-            key = data[get_text(row[0])]
+            key = get_text(row[0])
+            for pattern, better_key in KEY_PATTERNS.items():
+                key = re.sub(pattern, better_key, key)
             val = get_text(row[1])
-            if val and key not in IGNORE_KEYS:
+            if key and val:
                 data[key] = val
     if not data.get('Effects', ''):
         data['Effects'] = description
