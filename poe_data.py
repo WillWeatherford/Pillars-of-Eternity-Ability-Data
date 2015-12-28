@@ -219,6 +219,10 @@ def get_abil_data(url):
     abil_name = get_text(header)
     data['Ability Name'] = abil_name
 
+    description_p = table_div.find_next_sibling('p')
+    description = get_text(description_p)
+    data['Description'] = description
+
     rows = [r.find_all('td') for r in table_div.find_all('tr')]
     for row in rows:
         if len(row) == 2:
@@ -226,6 +230,9 @@ def get_abil_data(url):
             val = get_text(row[1])
             if val and key not in IGNORE_KEYS:
                 data[key] = val
+    if not data.get('Effects', ''):
+        data['Effects'] = description
+
     return abil_name, data
 
 
