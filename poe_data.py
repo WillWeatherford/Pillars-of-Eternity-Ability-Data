@@ -45,22 +45,26 @@ TARGETS = [
     'AoE', 'Caster', 'Target'
 ]
 
-LEVEL_KEY_PATTERN = re.compile(r'(Power|Spell|Invocation) level', re.I)
-DEFENSE_KEY_PATTERN = re.compile(r'(Effect|Damage) defended by', re.I)
-RESOURCE_KEY_PATTERN = re.compile(r'(Wounds|Phrases|Focus)', re.I)
-NULL_KEY_PATTERN = re.compile(r"(Internal name|')", re.I)
-CLASS_TALENT_KEY_PATTERN = re.compile(r'Group', re.I)
+EFFECTS_KEY_PATTERN = re.compile(r'^Effect(s)?$', re.I)
+LEVEL_KEY_PATTERN = re.compile(r'^(Power|Spell|Invocation) level$', re.I)
+DEFENSE_KEY_PATTERN = re.compile(r'^(Effect|Damage) defended by$', re.I)
+RESOURCE_KEY_PATTERN = re.compile(r'^(Wounds|Phrases|Focus)$', re.I)
+NULL_KEY_PATTERN = re.compile(r"^(Internal name|')$", re.I)
+CLASS_TALENT_KEY_PATTERN = re.compile(r'^Group$', re.I)
+
+CLASS_TALENT_VALUE_PATTERN = re.compile(r'^(?P<class>' + '|'.join(CLASSES)
+                                        + ')-specific$', re.I)
 
 KEY_PATTERNS = {
-    CLASS_TALENT_KEY_PATTERN: 'Class',
-    LEVEL_KEY_PATTERN: 'Ability level',
-    DEFENSE_KEY_PATTERN: 'Defended by',
-    RESOURCE_KEY_PATTERN: 'Resources',
-    NULL_KEY_PATTERN: '',
+    EFFECTS_KEY_PATTERN: lambda k, v: ('Effects', v),
+    CLASS_TALENT_KEY_PATTERN: lambda k, v:
+        ('Class',
+         re.sub(CLASS_TALENT_VALUE_PATTERN, lambda m: m.group('class'), v)),
+    LEVEL_KEY_PATTERN: lambda k, v: ('Ability level', v),
+    DEFENSE_KEY_PATTERN: lambda k, v: ('Defended by', v),
+    RESOURCE_KEY_PATTERN: lambda k, v: ('Resources', ' '.join((v, k))),
+    NULL_KEY_PATTERN: lambda k, v: ('', ''),
 }
-
-CLASS_TALENT_PATTERN = re.compile(r'(?P<class>' + '|'.join(CLASSES) + ')-specific', re.I)
-
 
 # def get_talent_class(match):
 #     return match.group('class')
@@ -131,13 +135,10 @@ def parse_args():
     return vars(args)
 
 
-def main(argcheck=False, test=False, func=None, **kwargs):
+def main(argcheck=False, func=None, **kwargs):
     print('main() called.')
     if argcheck:
         return
-    if test:
-        kwargs['num'] = 10
-        kwargs['classes'] = [random.choice(CLASSES)]
     if func:
         func(CSV_PATH, **kwargs)
 
@@ -173,7 +174,7 @@ def query(file_path, name=None, classes=CLASSES, damage_types=DAMAGE_TYPES,
                 print(': '.join((k, v)))
 
 
-def scrape_wiki(file_path, classes=CLASSES, num=9999,
+def scrape_wiki(file_path, test=False, classes=CLASSES, num=9999,
                 overwrite=True, **kwargs):
     '''
     Makes HTML requests to pillarsofeternity.gamepedia.com, gathering urls
@@ -181,11 +182,30 @@ def scrape_wiki(file_path, classes=CLASSES, num=9999,
     Finally returns a list of dictionaries; each dictionary holds the data
     for an ability.
     '''
+    if test:
+        num = 10
+        classes = [random.choice(CLASSES)]
+
     char_class_urls = get_char_class_urls(classes)
-    abil_urls = [abil_url for char_class_url in char_class_urls
-                 for abil_url in get_abil_urls(char_class_url)]
-    abil_urls.extend(get_abil_urls(TALENT_PAGE))
-    wiki_data = dict([get_abil_data(url) for url in abil_urls[:num]])
+    abil_urls = {name: url for char_class_url in char_class_urls
+                 for name, url in get_abil_urls(char_class_url).items()}
+
+    abil_urls.update(get_abil_urls(TALENT_PAGE))
+
+    for name, url in abil_urls.items()[:num]:
+        try:
+            print(': '.join((name, url)))
+        except UnicodeError:
+            try:
+                print('UnicodeError with {}'.format(name))
+            except UnicodeError:
+                try:
+                    print('UnicodeError with {}'.format(url))
+                except UnicodeError:
+                    print('Unresolvable UnicodeError')
+
+    wiki_data = {name: get_abil_data(name, url)
+                 for name, url in abil_urls.items()[:num]}
 
     if overwrite:
         local_data = {}
@@ -207,16 +227,11 @@ def get_char_class_urls(classes):
     #                         link_attrs={'class': CHAR_CLASS_LINK_ID})
 
 
-def get_abil_urls(url):
-    return get_links_by_div(url, div_attrs={'id': CAT_ID})
-
-
-def get_links_by_div(page_url, div_attrs={}, link_attrs={}):
-    page_soup = soup_from_url(page_url)
-    div = page_soup.find('div', attrs=div_attrs)
-    links = div.find_all('a', attrs=link_attrs)
-    urls = [''.join((MAIN_URL, l.get('href'))) for l in links]
-    return urls
+def get_abil_urls(url, div_attrs={}, link_attrs={}):
+    page_soup = soup_from_url(url)
+    div = page_soup.find('div', attrs={'id': CAT_ID})
+    links = div.find_all('a')
+    return {l.get_text(): ''.join((MAIN_URL, l.get('href'))) for l in links}
 
 
 def soup_from_url(url):
@@ -227,36 +242,27 @@ def soup_from_url(url):
     return soup
 
 
-def get_abil_data(url):
-    # print('Getting ability data from {}'.format(url))
-    data = {}
+def get_abil_data(name, url):
+    print('Getting ability data from {}'.format(url))
+    data = {'Ability Name': name}
     page_soup = soup_from_url(url)
-    table_div = page_soup.find('table', class_='infobox')
+    table_div = page_soup.find('table', attrs={'class': 'infobox'})
     if not table_div:
         print('Table Div not found at {}'.format(url))
         return '', data
 
-    header = table_div.find('th', class_='above')
-    if header:
-        abil_name = get_text(header)
-        data['Ability Name'] = abil_name
-    else:
-        print('Table header not found at {}'.format(url))
-
-    rows = [r.find_all('td') for r in table_div.find_all('tr')]
+    rows = [r.find_all(['td', 'th']) for r in table_div.find_all('tr')]
+    print('{} infobox rows found for {}.'.format(len(rows), name))
     for row in rows:
         if len(row) == 2:
             key = get_text(row[0])
             val = get_text(row[1])
-            for pattern, better_key in KEY_PATTERNS.items():
-                # get special cases into the KEY_PATTERNS dict
-                # a function to correct both key and value
-                if key == 'Group':
-                    val = re.sub(CLASS_TALENT_PATTERN,
-                                 lambda m: m.group('class'), val)
-                if better_key == 'Resources':
-                    val = ' '.join((val, key))
-                key = re.sub(pattern, better_key, key)
+            for pattern, func in KEY_PATTERNS.items():
+                if pattern.match(key):
+                    print('pattern match')
+                    print('before: {}: {}'.format(key, val))
+                    key, val = func(key, val)
+                    print('after: {}: {}'.format(key, val))
             if key and val:
                 data[key] = val
 
@@ -269,7 +275,7 @@ def get_abil_data(url):
     else:
         print('Description paragraph not found at {}'.format(url))
 
-    return abil_name, data
+    return data
 
 
 # Improvements:
