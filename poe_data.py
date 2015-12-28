@@ -48,13 +48,23 @@ TARGETS = [
 
 LEVEL_KEY_PATTERN = re.compile(r'(Power|Spell|Invocation) level', re.I)
 DEFENSE_KEY_PATTERN = re.compile(r'(Effect|Damage) defended by', re.I)
-NULL_KEY_PATTERN = re.compile(r"(Internal name|')")
+RESOURCE_KEY_PATTERN = re.compile(r'(Wounds|Phrases|Focus)', re.I)
+NULL_KEY_PATTERN = re.compile(r"(Internal name|')", re.I)
+CLASS_TALENT_KEY_PATTERN = re.compile(r'Group', re.I)
 
 KEY_PATTERNS = {
+    CLASS_TALENT_KEY_PATTERN: 'Class',
     LEVEL_KEY_PATTERN: 'Ability level',
     DEFENSE_KEY_PATTERN: 'Defended by',
+    RESOURCE_KEY_PATTERN: 'Resources',
     NULL_KEY_PATTERN: '',
 }
+
+CLASS_TALENT_PATTERN = re.compile(r'(?P<class>' + '|'.join(CLASSES) + ')-specific', re.I)
+
+
+# def get_talent_class(match):
+#     return match.group('class')
 
 
 class ArgMatch(argparse.Action):
@@ -90,6 +100,10 @@ def parse_args():
                                'of a random class.')
     scrape_parser.add_argument('-o', '--overwrite', action='store_true',
                                help='Overwrite local data with scraped data.')
+    scrape_parser.add_argument('-c', '--classes', type=str, nargs='*',
+                               default=CLASSES, action=ArgMatch,
+                               help='Filter on specific char classes. Separate '
+                               'classes by spaces, e.g. "Wizard monk".')
 
     # "query" subcommand and arguments
     query_parser = subparser.add_parser('query', help='Query local data.')
@@ -174,7 +188,10 @@ def scrape_wiki(file_path, classes=CLASSES, num=9999,
     abil_urls.extend(get_abil_urls(TALENT_PAGE))
     wiki_data = dict([get_abil_data(url) for url in abil_urls[:num]])
 
-    local_data = read_from_csv(file_path)
+    if overwrite:
+        local_data = {}
+    else:
+        local_data = read_from_csv(file_path)
     # if overwrite is true vs false?
     # if overwrite is false:
     # check ability name along with link. if abil name is already in local
@@ -224,21 +241,28 @@ def get_abil_data(url):
     abil_name = get_text(header)
     data['Ability Name'] = abil_name
 
-    description_p = table_div.find_next_sibling('p')
-    description = get_text(description_p)
-    data['Description'] = description
-
     rows = [r.find_all('td') for r in table_div.find_all('tr')]
     for row in rows:
         if len(row) == 2:
             key = get_text(row[0])
-            for pattern, better_key in KEY_PATTERNS.items():
-                key = re.sub(pattern, better_key, key)
             val = get_text(row[1])
+            for pattern, better_key in KEY_PATTERNS.items():
+                if key == 'Group':
+                    val = re.sub(CLASS_TALENT_PATTERN, lambda m: m.group('class'), val)
+                if better_key == 'Resources':
+                    val = ' '.join((val, key))
+                key = re.sub(pattern, better_key, key)
             if key and val:
                 data[key] = val
-    if not data.get('Effects', ''):
-        data['Effects'] = description
+
+    description_p = table_div.find_next_sibling('p')
+    if description_p:
+        description = get_text(description_p)
+        data['Description'] = description
+        if not data.get('Effects', ''):
+            data['Effects'] = description
+    else:
+        print('Description paragraph not found at {}'.format(url))
 
     return abil_name, data
 
