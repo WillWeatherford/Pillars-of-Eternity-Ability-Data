@@ -1,8 +1,8 @@
 # to do:
-# regexes for partial/non case sensitive match of classes, defenses etc
 # better result printing
 # nice formatted excel data?
-
+# gather definitions from data e.g. for target options
+# collect Talents from wiki as well
 
 import re
 import os
@@ -18,8 +18,8 @@ MAIN_URL = 'http://pillarsofeternity.gamepedia.com'
 CAT = '/Category:{}'
 CAT_SUB = ''.join((MAIN_URL, CAT))
 CLASS_ABIL_SUB = '_'.join((CAT_SUB, 'abilities'))
-ABIL_SUB = '/Category:Abilities'
-ABIL_PAGE = ''.join((MAIN_URL, ABIL_SUB))
+ABIL_PAGE = CAT_SUB.format('Abilities')
+TALENT_PAGE = CAT_SUB.format('Talents')
 
 HAS_RE = re.compile(r'(^\[\[[A-Za-z\s]+::)|\]\]')
 assert HAS_RE.match('[[has defense::fortitude]]')
@@ -46,8 +46,24 @@ TARGETS = [
     'AoE', 'Caster', 'Target'
 ]
 
+IGNORE_KEYS = ['Internal name']
 
-# use sub-parser to call a function straight from a positional arg.
+# "'Damage defended by', Effect defended by" - > defended by
+# 'Power level' 'Spell level' Invocation level' -> Ability level
+
+
+class ArgMatch(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string):
+        print 'ArgMatch called; self.default: {}'.format(self.default)
+        new_values = [d for d in self.default for v in values
+                      if len(v) > 1 and re.compile(v, re.I).match(d)]
+        setattr(namespace, self.dest, new_values)
+
+
+def defaults_from_data(data, key):
+    return list({row.get(key, '').title() for row in data})
+
+
 def parse_args():
     '''
     Parse command line arguments into **kwargs for the main function to
@@ -76,18 +92,19 @@ def parse_args():
     query_parser.add_argument('-n', '--name', type=str,
                               help='Filter on a specific ability by name.')
     query_parser.add_argument('-c', '--classes', type=str, nargs='*',
-                              default=CLASSES,
+                              default=CLASSES, action=ArgMatch,
                               help='Filter on specific char classes. Separate '
                               'classes by spaces, e.g. "Wizard monk".')
-    query_parser.add_argument('-t', '--target', type=str,
-                              help='Filter on a specific target type.')
+    # query_parser.add_argument('-t', '--target', type=str,
+    #                           default=TARGETS, action=ArgMatch,
+    #                           help='Filter on a specific target type.')
     query_parser.add_argument('-D', '--damage-types', type=str, nargs='*',
-                              default=DAMAGE_TYPES,
+                              default=DAMAGE_TYPES, action=ArgMatch,
                               help='Filter on specific damage types. Separate '
                               'damage types by spaces, e.g. "crush pierce".')
     query_parser.add_argument('-d', '--defenses', type=str, nargs='*',
-                              default=DEFENSES,
-                              help='Filter ocific defenses. Separate '
+                              default=DEFENSES, action=ArgMatch,
+                              help='Filter on specific defenses. Separate '
                               'defenses by spaces, e.g. "will Reflex".')
 
     args = parser.parse_args()
@@ -103,7 +120,8 @@ def main(argcheck=False, test=False, func=None, **kwargs):
     if test:
         kwargs['num'] = 10
         kwargs['classes'] = [random.choice(CLASSES)]
-    func(CSV_PATH, **kwargs)
+    if func:
+        func(CSV_PATH, **kwargs)
 
 
 def read_from_csv(file_path):
@@ -130,11 +148,11 @@ def query(file_path, name=None, classes=CLASSES, damage_types=DAMAGE_TYPES,
             and row['Defended by'] in defenses
             # and row['Area/Target'] in targets
             ]
-    print('Query Results:')
+    print('{} Query Results Found:'.format(len(data)))
     for row in data:
-        for pair in row.items():
-            if pair[1]:
-                print(': '.join(pair))
+        for k, v in row.items():
+            if v:
+                print(': '.join((k, v)))
 
 
 def scrape_wiki(file_path, classes=CLASSES, num=9999,
@@ -148,6 +166,7 @@ def scrape_wiki(file_path, classes=CLASSES, num=9999,
     char_class_urls = get_char_class_urls(classes)
     abil_urls = [abil_url for char_class_url in char_class_urls
                  for abil_url in get_abil_urls(char_class_url)]
+    abil_urls.extend(get_abil_urls(TALENT_PAGE))
     wiki_data = dict([get_abil_data(url) for url in abil_urls[:num]])
 
     local_data = read_from_csv(file_path)
@@ -203,14 +222,17 @@ def get_abil_data(url):
     rows = [r.find_all('td') for r in table_div.find_all('tr')]
     for row in rows:
         if len(row) == 2:
-            data[get_text(row[0])] = get_text(row[1])
+            key = data[get_text(row[0])]
+            val = get_text(row[1])
+            if val and key not in IGNORE_KEYS:
+                data[key] = val
     return abil_name, data
 
 
 # Improvements:
 # some wrong values e.g. damage type = Average for Arduous delay
 # newline seperated in Effects mushed together
-# some irrelevant
+# some irrelevant e.g. internal_name
 # query from edit page???
 def get_text(element):
     '''
