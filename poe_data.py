@@ -1,8 +1,7 @@
 # to do:
-# better result printing
+# better result printing for query
 # nice formatted excel data?
 # gather definitions from data e.g. for target options
-# collect Talents from wiki as well
 
 import re
 import os
@@ -247,8 +246,11 @@ def get_abil_data(url):
             key = get_text(row[0])
             val = get_text(row[1])
             for pattern, better_key in KEY_PATTERNS.items():
+                # get special cases into the KEY_PATTERNS dict
+                # a function to correct both key and value
                 if key == 'Group':
-                    val = re.sub(CLASS_TALENT_PATTERN, lambda m: m.group('class'), val)
+                    val = re.sub(CLASS_TALENT_PATTERN,
+                                 lambda m: m.group('class'), val)
                 if better_key == 'Resources':
                     val = ' '.join((val, key))
                 key = re.sub(pattern, better_key, key)
@@ -270,8 +272,8 @@ def get_abil_data(url):
 # Improvements:
 # some wrong values e.g. damage type = Average for Arduous delay
 # newline seperated in Effects mushed together
-# some irrelevant e.g. internal_name
-# query from edit page???
+# missing + sign on accuracy for spells
+
 def get_text(element):
     '''
     Gather and parse text from a table cell element from a wiki info table.
