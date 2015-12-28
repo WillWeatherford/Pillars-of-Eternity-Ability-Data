@@ -220,7 +220,7 @@ def get_links_by_div(page_url, div_attrs={}, link_attrs={}):
 
 
 def soup_from_url(url):
-    print('Requesting {}...'.format(url))
+    # print('Requesting {}...'.format(url))
     time.sleep(DELAY)
     response = requests.get(url)
     soup = BeautifulSoup(response.text)
@@ -228,7 +228,7 @@ def soup_from_url(url):
 
 
 def get_abil_data(url):
-    print('Getting ability data from {}'.format(url))
+    # print('Getting ability data from {}'.format(url))
     data = {}
     page_soup = soup_from_url(url)
     table_div = page_soup.find('table', class_='infobox')
@@ -237,8 +237,11 @@ def get_abil_data(url):
         return '', data
 
     header = table_div.find('th', class_='above')
-    abil_name = get_text(header)
-    data['Ability Name'] = abil_name
+    if header:
+        abil_name = get_text(header)
+        data['Ability Name'] = abil_name
+    else:
+        print('Table header not found at {}'.format(url))
 
     rows = [r.find_all('td') for r in table_div.find_all('tr')]
     for row in rows:
