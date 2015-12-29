@@ -42,11 +42,6 @@ TARGETS = [
     'AoE', 'Caster', 'Target'
 ]
 
-HAS_RE = re.compile(r'(^\[\[[A-Za-z\s]+::)|\]\]')
-assert HAS_RE.match('[[has defense::fortitude]]')
-assert HAS_RE.match('[[has damage type::Crush]]')
-assert HAS_RE.match('[[has defense::Reflex]]')
-
 EFFECTS_KEY_PATTERN = re.compile(r'^Effect(s)?$', re.I)
 LEVEL_KEY_PATTERN = re.compile(r'^(Power|Spell|Invocation) level$', re.I)
 DEFENSE_KEY_PATTERN = re.compile(r'^(Effect|Damage) defended by$', re.I)
@@ -56,6 +51,7 @@ CLASS_TALENT_KEY_PATTERN = re.compile(r'^Group$', re.I)
 
 CLASS_TALENT_VALUE_PATTERN = re.compile(r'^(?P<class>' + '|'.join(CLASSES)
                                         + ')-specific$', re.I)
+HAS_VALUE_PATTERN = re.compile(r'^\[\[[a-z\s]+::(?P<value>[a-z]+)\]\]', re.I)
 
 KEY_PATTERNS = {
     EFFECTS_KEY_PATTERN: lambda k, v: ('Effects', v),
@@ -279,7 +275,6 @@ def get_abil_data(name, url):
 
 # Improvements:
 # some wrong values e.g. damage type = Average for Arduous delay
-# newline seperated in Effects mushed together
 # missing + sign on accuracy for spells
 
 def get_text(element):
@@ -289,13 +284,18 @@ def get_text(element):
     error = element.find('span', attrs={'data-title': 'Error'})
     if error:
         error.decompose()
+
+    for br in element.find_all('br'):
+        comma_string = NavigableString(', ')
+        br.replace_with(comma_string)
+
     if isinstance(element, NavigableString):
-        text = unicode(element)
-        text = text.replace(u'\xb0', u'degree')
+        text = unicode(element, errors='ignore')
     else:
         text = element.get_text()
-    text = text.replace('\n', ' ').strip().encode('utf8')
-    text = re.sub(HAS_RE, '', text)
+    text = text.replace('\n', ' ').strip().encode('utf8', errors='ignore')
+    # text = text.replace(u'\xb0', u'degree')
+    text = re.sub(HAS_VALUE_PATTERN, lambda m: m.group('value'), text)
     return text
 
 
