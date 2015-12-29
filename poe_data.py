@@ -187,18 +187,6 @@ def scrape_wiki(file_path, test=False, classes=CLASSES, num=9999,
 
     abil_urls.update(get_abil_urls(TALENT_PAGE))
 
-    for name, url in abil_urls.items()[:num]:
-        try:
-            print(': '.join((name, url)))
-        except UnicodeError:
-            try:
-                print('UnicodeError with {}'.format(name))
-            except UnicodeError:
-                try:
-                    print('UnicodeError with {}'.format(url))
-                except UnicodeError:
-                    print('Unresolvable UnicodeError')
-
     wiki_data = {name: get_abil_data(name, url)
                  for name, url in abil_urls.items()[:num]}
 
@@ -217,16 +205,13 @@ def scrape_wiki(file_path, test=False, classes=CLASSES, num=9999,
 
 def get_char_class_urls(classes):
     return [CLASS_ABIL_SUB.format(c) for c in classes]
-    # return get_links_by_div(url, MAIN_URL,
-    #                         div_attrs={'id': CHAR_CLASS_ID},
-    #                         link_attrs={'class': CHAR_CLASS_LINK_ID})
 
 
 def get_abil_urls(url, div_attrs={}, link_attrs={}):
     page_soup = soup_from_url(url)
     div = page_soup.find('div', attrs={'id': CAT_ID})
     links = div.find_all('a')
-    return {l.get_text(): ''.join((MAIN_URL, l.get('href'))) for l in links}
+    return {get_text(l): ''.join((MAIN_URL, l.get('href'))) for l in links}
 
 
 def soup_from_url(url):
