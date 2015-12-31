@@ -42,26 +42,64 @@ TARGETS = [
     'AoE', 'Caster', 'Target'
 ]
 
-EFFECTS_KEY_PATTERN = re.compile(r'^Effect(s)?$', re.I)
-LEVEL_KEY_PATTERN = re.compile(r'^(Power|Spell|Invocation) level$', re.I)
-DEFENSE_KEY_PATTERN = re.compile(r'^(Effect|Damage) defended by$', re.I)
-RESOURCE_KEY_PATTERN = re.compile(r'^(Wounds|Phrases|Focus)$', re.I)
-NULL_KEY_PATTERN = re.compile(r"^(Internal name|')$", re.I)
-CLASS_TALENT_KEY_PATTERN = re.compile(r'^Group$', re.I)
+# EFFECTS_KEY_PATTERN = re.compile(r'^Effect(s)?$', re.I)
+# LEVEL_KEY_PATTERN = re.compile(r'^(Power|Spell|Invocation) level$', re.I)
+# DEFENSE_KEY_PATTERN = re.compile(r'^(Effect|Damage) defended by$', re.I)
+# RESOURCE_KEY_PATTERN = re.compile(r'^(Wounds|Phrases|Focus)$', re.I)
+# NULL_KEY_PATTERN = re.compile(r"^(Internal name|')$", re.I)
+# CLASS_TALENT_KEY_PATTERN = re.compile(r'^Group$', re.I)
 
-CLASS_TALENT_VALUE_PATTERN = re.compile(r'^(?P<class>' + '|'.join(CLASSES)
-                                        + ')-specific$', re.I)
-HAS_VALUE_PATTERN = re.compile(r'^\[\[[a-z\s]+::(?P<value>[a-z]+)\]\]', re.I)
+# CLASS_TALENT_VALUE_PATTERN = re.compile(r'^(?P<class>' + '|'.join(CLASSES)
+#                                         + ')-specific$', re.I)
+
+# HAS_KEY_PATTERN = re.compile(r'^(Defended by|Damage type)$', re.I)
+# HAS_VALUE_PATTERN = re.compile(r'^\[\[has (defense|damage type)::(?P<value>[a-z]+)\]\]', re.I)
+
+# KEY_PATTERNS = {
+#     EFFECTS_KEY_PATTERN: lambda k, v: ('Effects', v),
+#     CLASS_TALENT_KEY_PATTERN: lambda k, v:
+#         ('Class',
+#          re.sub(CLASS_TALENT_VALUE_PATTERN, lambda m: m.group('class'), v)),
+#     LEVEL_KEY_PATTERN: lambda k, v: ('Ability level', v),
+#     DEFENSE_KEY_PATTERN: lambda k, v: ('Defended by', v),
+#     RESOURCE_KEY_PATTERN: lambda k, v: ('Resources', ' '.join((v, k))),
+#     NULL_KEY_PATTERN: lambda k, v: ('', ''),
+#     HAS_KEY_PATTERN: lambda k, v: (k, re.sub(HAS_VALUE_PATTERN,
+#                                    lambda m: m.group('value'), v))
+# }
+
+HAS = ('defense', 'damage type', 'duration', 'effect(s)?')
+HAS_VALUE_PATTERN = r'^\[\[has (' + r'|'.join(HAS) + ')::(?P<value>[^\]]+)\]\]'
+
+assert(re.match(HAS_VALUE_PATTERN, '[[has damage type::Crush]]', flags=re.I))
+assert(re.match(HAS_VALUE_PATTERN, '[[has duration::5 sec + Intellect*5% (Extra Time)]]', flags=re.I))
+
 
 KEY_PATTERNS = {
-    EFFECTS_KEY_PATTERN: lambda k, v: ('Effects', v),
-    CLASS_TALENT_KEY_PATTERN: lambda k, v:
-        ('Class',
-         re.sub(CLASS_TALENT_VALUE_PATTERN, lambda m: m.group('class'), v)),
-    LEVEL_KEY_PATTERN: lambda k, v: ('Ability level', v),
-    DEFENSE_KEY_PATTERN: lambda k, v: ('Defended by', v),
-    RESOURCE_KEY_PATTERN: lambda k, v: ('Resources', ' '.join((v, k))),
-    NULL_KEY_PATTERN: lambda k, v: ('', ''),
+    r"^(Internal name|')$":
+        lambda k, v: ('', ''),
+
+    r'^Effect(s)?$':
+        lambda k, v: ('Effects', re.sub(HAS_VALUE_PATTERN,
+                                        lambda m: m.group('value'), v, flags=re.I)),
+
+    r'^(Effect|Damage) defended by$':
+        lambda k, v: ('Defended by', v),
+
+    r'^(Power|Spell|Invocation) level$':
+        lambda k, v: ('Ability level', v),
+
+    r'^(Wounds|Phrases|Focus)$':
+        lambda k, v: ('Resources', ' '.join((v, k))),
+
+    r'^(Defended by|Damage type)$':
+        lambda k, v: (k, re.sub(HAS_VALUE_PATTERN,
+                                lambda m: m.group('value'), v, flags=re.I)),
+
+    r'^Group$':
+    lambda k, v: ('Class', re.sub(
+                  r'^(?P<class>' + '|'.join(CLASSES) + ')-specific',
+                  lambda m: m.group('class'), v)),
 }
 
 
@@ -74,7 +112,7 @@ class ArgMatch(argparse.Action):
 
 
 def defaults_from_data(data, key):
-    return list({row.get(key, '').title() for row in data})
+    return {row.get(key, '').title() for row in data}
 
 
 def parse_args():
@@ -148,6 +186,7 @@ def query(file_path, name=None, classes=CLASSES, damage_types=DAMAGE_TYPES,
           defenses=DEFENSES, targets=TARGETS, *args, **kwargs):
     print('query() called.')
     data = read_from_csv(file_path)
+    targets = defaults_from_data(data, 'Area/Target')
     if name:
         try:
             print(data[name])
@@ -238,7 +277,7 @@ def get_abil_data(name, url):
             key = get_text(row[0])
             val = get_text(row[1])
             for pattern, func in KEY_PATTERNS.items():
-                if pattern.match(key):
+                if re.match(pattern, key, flags=re.I):
                     print('pattern match')
                     print('before: {}: {}'.format(key, val))
                     key, val = func(key, val)
@@ -280,7 +319,7 @@ def get_text(element):
         text = element.get_text()
     text = text.replace('\n', ' ').strip().encode('utf8', errors='ignore')
     # text = text.replace(u'\xb0', u'degree')
-    text = re.sub(HAS_VALUE_PATTERN, lambda m: m.group('value'), text)
+    # text = re.sub(HAS_VALUE_PATTERN, lambda m: m.group('value'), text)
     return text
 
 
