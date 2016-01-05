@@ -3,6 +3,11 @@
 # nice formatted excel data?
 # gather definitions from data e.g. for target options
 
+# combine "Changes" and influenced ability/item?
+# combine uses/restoration
+# better use of Type (spell, aura)
+# decoding of percentage and degree signs
+
 import re
 import os
 import csv
@@ -42,64 +47,41 @@ TARGETS = [
     'AoE', 'Caster', 'Target'
 ]
 
-# EFFECTS_KEY_PATTERN = re.compile(r'^Effect(s)?$', re.I)
-# LEVEL_KEY_PATTERN = re.compile(r'^(Power|Spell|Invocation) level$', re.I)
-# DEFENSE_KEY_PATTERN = re.compile(r'^(Effect|Damage) defended by$', re.I)
-# RESOURCE_KEY_PATTERN = re.compile(r'^(Wounds|Phrases|Focus)$', re.I)
-# NULL_KEY_PATTERN = re.compile(r"^(Internal name|')$", re.I)
-# CLASS_TALENT_KEY_PATTERN = re.compile(r'^Group$', re.I)
-
-# CLASS_TALENT_VALUE_PATTERN = re.compile(r'^(?P<class>' + '|'.join(CLASSES)
-#                                         + ')-specific$', re.I)
-
-# HAS_KEY_PATTERN = re.compile(r'^(Defended by|Damage type)$', re.I)
-# HAS_VALUE_PATTERN = re.compile(r'^\[\[has (defense|damage type)::(?P<value>[a-z]+)\]\]', re.I)
-
-# KEY_PATTERNS = {
-#     EFFECTS_KEY_PATTERN: lambda k, v: ('Effects', v),
-#     CLASS_TALENT_KEY_PATTERN: lambda k, v:
-#         ('Class',
-#          re.sub(CLASS_TALENT_VALUE_PATTERN, lambda m: m.group('class'), v)),
-#     LEVEL_KEY_PATTERN: lambda k, v: ('Ability level', v),
-#     DEFENSE_KEY_PATTERN: lambda k, v: ('Defended by', v),
-#     RESOURCE_KEY_PATTERN: lambda k, v: ('Resources', ' '.join((v, k))),
-#     NULL_KEY_PATTERN: lambda k, v: ('', ''),
-#     HAS_KEY_PATTERN: lambda k, v: (k, re.sub(HAS_VALUE_PATTERN,
-#                                    lambda m: m.group('value'), v))
-# }
 
 HAS = ('defense', 'damage type', 'duration', 'effect(s)?')
-HAS_VALUE_PATTERN = r'^\[\[has (' + r'|'.join(HAS) + ')::(?P<value>[^\]]+)\]\]'
+# HAS_VALUE_PATTERN = r'^\[\[has (' + r'|'.join(HAS) + ')::(?P<value>[^\]]+)\]\]'
 
-assert(re.match(HAS_VALUE_PATTERN, '[[has damage type::Crush]]', flags=re.I))
-assert(re.match(HAS_VALUE_PATTERN, '[[has duration::5 sec + Intellect*5% (Extra Time)]]', flags=re.I))
-
+# assert(re.match(HAS_VALUE_PATTERN, '[[has damage type::Crush]]', flags=re.I))
+# assert(re.match(HAS_VALUE_PATTERN, '[[has duration::5 sec + Intellect*5% (Extra Time)]]', flags=re.I))
 
 KEY_PATTERNS = {
     r"^(Internal name|')$":
         lambda k, v: ('', ''),
 
-    r'^Effect(s)?$':
-        lambda k, v: ('Effects', re.sub(HAS_VALUE_PATTERN,
-                                        lambda m: m.group('value'), v, flags=re.I)),
+    r'^(Effect)$':
+        lambda k, v: ('Effects', v),
 
     r'^(Effect|Damage) defended by$':
         lambda k, v: ('Defended by', v),
 
-    r'^(Power|Spell|Invocation) level$':
+    r'^(Power|Spell|Invocation|Phrase) level$':
         lambda k, v: ('Ability level', v),
 
     r'^(Wounds|Phrases|Focus)$':
         lambda k, v: ('Resources', ' '.join((v, k))),
 
-    r'^(Defended by|Damage type)$':
-        lambda k, v: (k, re.sub(HAS_VALUE_PATTERN,
-                                lambda m: m.group('value'), v, flags=re.I)),
+    r'^(Learned)$':
+        lambda k, v: ('Level', ''.join([c for c in v if c.isdigit()])),
 
     r'^Group$':
     lambda k, v: ('Class', re.sub(
                   r'^(?P<class>' + '|'.join(CLASSES) + ')-specific',
                   lambda m: m.group('class'), v)),
+
+    r'^(Defended by|Damage type|Effect(s)?)$':
+        lambda k, v: (k, re.sub(
+            r'^\[\[has (' + r'|'.join(HAS) + ')::(?P<value>[^\]]+)\]\]',
+            lambda m: m.group('value'), v, flags=re.I)),
 }
 
 
@@ -179,7 +161,7 @@ def main(argcheck=False, func=None, **kwargs):
 def read_from_csv(file_path):
     with open(file_path, 'r') as input_csv:
         reader = csv.DictReader(input_csv)
-        return {row['Ability Name']: row for row in reader}
+        return [row for row in reader]
 
 
 def query(file_path, name=None, classes=CLASSES, damage_types=DAMAGE_TYPES,
@@ -199,7 +181,7 @@ def query(file_path, name=None, classes=CLASSES, damage_types=DAMAGE_TYPES,
             and row['Class'] in classes
             and row['Damage type'] in damage_types
             and row['Defended by'] in defenses
-            # and row['Area/Target'] in targets
+            and row['Area/Target'] in targets
             ]
     print('{} Query Results Found:'.format(len(data)))
     for row in data:
@@ -226,18 +208,18 @@ def scrape_wiki(file_path, test=False, classes=CLASSES, num=9999,
 
     abil_urls.update(get_abil_urls(TALENT_PAGE))
 
-    wiki_data = {name: get_abil_data(name, url)
-                 for name, url in abil_urls.items()[:num]}
+    wiki_data = [get_abil_data(name, url)
+                 for name, url in abil_urls.items()[:num]]
 
     if overwrite:
-        local_data = {}
+        local_data = []
     else:
         local_data = read_from_csv(file_path)
     # if overwrite is true vs false?
     # if overwrite is false:
     # check ability name along with link. if abil name is already in local
     # data, ignore it
-    local_data.update(wiki_data)
+    local_data.extend(wiki_data)
 
     write_to_csv(local_data.values(), file_path)
 
@@ -284,6 +266,9 @@ def get_abil_data(name, url):
                     print('after: {}: {}'.format(key, val))
             if key and val:
                 data[key] = val
+
+        data['Uses'] = ' '.join((data.get('Uses', ''),
+                                 data.get('Restoration', '')))
 
     description_p = table_div.find_next_sibling('p')
     if description_p:
