@@ -1,11 +1,10 @@
 # to do:
 # better result printing for query
-# nice formatted excel data?
+# nice formatted excel data? colors, sorted, specific col header values
 # gather definitions from data e.g. for target options
 
 # combine "Changes" and influenced ability/item?
-# combine uses/restoration
-# better use of Type (spell, aura)
+# better use of Type (spell, aura, exhortation)
 # decoding of percentage and degree signs
 
 import re
@@ -18,6 +17,7 @@ import argparse
 from bs4 import BeautifulSoup, NavigableString
 
 DELAY = 10
+MAX_TRIES = 10
 MAIN_URL = 'http://pillarsofeternity.gamepedia.com'
 CAT = '/Category:{}'
 CAT_SUB = ''.join((MAIN_URL, CAT))
@@ -81,7 +81,9 @@ KEY_PATTERNS = {
     r'^(Defended by|Damage type|Effect(s)?)$':
         lambda k, v: (k, re.sub(
             r'^\[\[has (' + r'|'.join(HAS) + ')::(?P<value>[^\]]+)\]\]',
-            lambda m: m.group('value'), v, flags=re.I)),
+            lambda m: re.sub(r'ignores Armor', 'Raw', m.group('value'),
+                             flags=re.I),
+            v, flags=re.I)),
 }
 
 
@@ -120,8 +122,8 @@ def parse_args():
                                help='Overwrite local data with scraped data.')
     scrape_parser.add_argument('-c', '--classes', type=str, nargs='*',
                                default=CLASSES, action=ArgMatch,
-                               help='Filter on specific char classes. Separate '
-                               'classes by spaces, e.g. "Wizard monk".')
+                               help='Filter on specific char classes. Separate'
+                               ' classes by spaces, e.g. "Wizard monk".')
 
     # "query" subcommand and arguments
     query_parser = subparser.add_parser('query', help='Query local data.')
@@ -221,7 +223,7 @@ def scrape_wiki(file_path, test=False, classes=CLASSES, num=9999,
     # data, ignore it
     local_data.extend(wiki_data)
 
-    write_to_csv(local_data.values(), file_path)
+    write_to_csv(local_data, file_path)
 
 
 def get_char_class_urls(classes):
@@ -235,12 +237,17 @@ def get_abil_urls(url, div_attrs={}, link_attrs={}):
     return {get_text(l): ''.join((MAIN_URL, l.get('href'))) for l in links}
 
 
-def soup_from_url(url):
+def soup_from_url(url, tries=0):
     # print('Requesting {}...'.format(url))
     time.sleep(DELAY)
-    response = requests.get(url)
-    soup = BeautifulSoup(response.text)
-    return soup
+    try:
+        response = requests.get(url)
+        soup = BeautifulSoup(response.text)
+        return soup
+    except requests.RequestException as e:
+        if tries >= MAX_TRIES:
+            raise e
+        return soup_from_url(url, tries + 1)
 
 
 def get_abil_data(name, url):
@@ -269,6 +276,7 @@ def get_abil_data(name, url):
 
         data['Uses'] = ' '.join((data.get('Uses', ''),
                                  data.get('Restoration', '')))
+        data.pop('Restoration', None)
 
     description_p = table_div.find_next_sibling('p')
     if description_p:
@@ -303,6 +311,7 @@ def get_text(element):
     else:
         text = element.get_text()
     text = text.replace('\n', ' ').strip().encode('utf8', errors='ignore')
+    text = ''.join((text[:1].title(), text[1:]))
     # text = text.replace(u'\xb0', u'degree')
     # text = re.sub(HAS_VALUE_PATTERN, lambda m: m.group('value'), text)
     return text
