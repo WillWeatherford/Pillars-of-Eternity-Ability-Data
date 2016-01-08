@@ -4,8 +4,13 @@
 # gather definitions from data e.g. for target options
 
 # combine "Changes" and influenced ability/item?
-# better use of Type (spell, aura, exhortation)
+# better use of Type (Talent, wizard spell, priest spell, aura, exhortation,
+#    phrase, invocation)
 # decoding of percentage and degree signs
+# merge "Changes" with "Effects"
+
+# fix:
+
 
 import re
 import os
@@ -14,6 +19,7 @@ import time
 import random
 import requests
 import argparse
+from collections import defaultdict
 from bs4 import BeautifulSoup, NavigableString
 
 DELAY = 10
@@ -47,12 +53,18 @@ TARGETS = [
     'AoE', 'Caster', 'Target'
 ]
 
+CPS_KEYS = [
+    'Value', 'Equipment slot', 'Combat Type', 'Abilities', 'Enchantment',
+    'Bonus', 'Handing'
+]
+
+USELESS_KEYS = [
+    'Restoration', 'Related Talents', 'Talents', 'Speed'
+]
+
+USELESS_KEYS.extend(CPS_KEYS)
 
 HAS = ('defense', 'damage type', 'duration', 'effect(s)?')
-# HAS_VALUE_PATTERN = r'^\[\[has (' + r'|'.join(HAS) + ')::(?P<value>[^\]]+)\]\]'
-
-# assert(re.match(HAS_VALUE_PATTERN, '[[has damage type::Crush]]', flags=re.I))
-# assert(re.match(HAS_VALUE_PATTERN, '[[has duration::5 sec + Intellect*5% (Extra Time)]]', flags=re.I))
 
 KEY_PATTERNS = {
     r"^(Internal name|')$":
@@ -60,6 +72,9 @@ KEY_PATTERNS = {
 
     r'^(Effect)$':
         lambda k, v: ('Effects', v),
+
+    r'^(Speed)$':
+        lambda k, v: ('Casting Time', v),
 
     r'^(Effect|Damage) defended by$':
         lambda k, v: ('Defended by', v),
@@ -76,9 +91,9 @@ KEY_PATTERNS = {
     r'^Group$':
     lambda k, v: ('Class', re.sub(
                   r'^(?P<class>' + '|'.join(CLASSES) + ')-specific',
-                  lambda m: m.group('class'), v)),
+                  lambda m: m.group('class'), v, flags=re.I)),
 
-    r'^(Defended by|Damage type|Effect(s)?)$':
+    r'^(Duration|Defended by|Damage(\stype)?|Effect(s)?)$':
         lambda k, v: (k, re.sub(
             r'^\[\[has (' + r'|'.join(HAS) + ')::(?P<value>[^\]]+)\]\]',
             lambda m: re.sub(r'ignores Armor', 'Raw', m.group('value'),
@@ -145,6 +160,9 @@ def parse_args():
                               default=DEFENSES, action=ArgMatch,
                               help='Filter on specific defenses. Separate '
                               'defenses by spaces, e.g. "will Reflex".')
+    query_parser.add_argument('-v', '--verbosity', type=int, default=0,
+                              help='Filter on specific defenses. Separate '
+                              'defenses by spaces, e.g. "will Reflex".')
 
     args = parser.parse_args()
     print(args)
@@ -166,8 +184,9 @@ def read_from_csv(file_path):
         return [row for row in reader]
 
 
-def query(file_path, name=None, classes=CLASSES, damage_types=DAMAGE_TYPES,
-          defenses=DEFENSES, targets=TARGETS, *args, **kwargs):
+def query(file_path, verbosity=0, name=None, classes=CLASSES,
+          damage_types=DAMAGE_TYPES, defenses=DEFENSES, targets=TARGETS,
+          *args, **kwargs):
     print('query() called.')
     data = read_from_csv(file_path)
     targets = defaults_from_data(data, 'Area/Target')
@@ -178,7 +197,7 @@ def query(file_path, name=None, classes=CLASSES, damage_types=DAMAGE_TYPES,
         except KeyError:
             raise KeyError('Ability named "{}" is not found in the database.'
                            ''.format(name))
-    data = data.values()
+    # data = data.values()
     data = [row for row in data if row
             and row['Class'] in classes
             and row['Damage type'] in damage_types
@@ -187,9 +206,12 @@ def query(file_path, name=None, classes=CLASSES, damage_types=DAMAGE_TYPES,
             ]
     print('{} Query Results Found:'.format(len(data)))
     for row in data:
-        for k, v in row.items():
-            if v:
-                print(': '.join((k, v)))
+        if not verbosity:
+            print(row['Ability Name'])
+        else:
+            for k, v in row.items():
+                if v:
+                    print(': '.join((k, v)))
 
 
 def scrape_wiki(file_path, test=False, classes=CLASSES, num=9999,
@@ -221,9 +243,11 @@ def scrape_wiki(file_path, test=False, classes=CLASSES, num=9999,
     # if overwrite is false:
     # check ability name along with link. if abil name is already in local
     # data, ignore it
-    local_data.extend(wiki_data)
+    wiki_data.extend(local_data)
 
-    write_to_csv(local_data, file_path)
+    final_data = filter(None, wiki_data)
+
+    write_to_csv(final_data, file_path)
 
 
 def get_char_class_urls(classes):
@@ -234,7 +258,9 @@ def get_abil_urls(url, div_attrs={}, link_attrs={}):
     page_soup = soup_from_url(url)
     div = page_soup.find('div', attrs={'id': CAT_ID})
     links = div.find_all('a')
-    return {get_text(l): ''.join((MAIN_URL, l.get('href'))) for l in links}
+    urls = {get_text(l): ''.join((MAIN_URL, l.get('href'))) for l in links}
+    return {k: v for k, v in urls.items()
+            if all((k, v, not k.isspace(), not v.isspace()))}
 
 
 def soup_from_url(url, tries=0):
@@ -252,13 +278,13 @@ def soup_from_url(url, tries=0):
 
 def get_abil_data(name, url):
     print('Getting ability data from {}'.format(url))
-    data = {'Ability Name': name}
     page_soup = soup_from_url(url)
     table_div = page_soup.find('table', attrs={'class': 'infobox'})
     if not table_div:
         print('Table Div not found at {}'.format(url))
-        return '', data
+        return {}
 
+    data = defaultdict(str, {'Ability Name': name})
     rows = [r.find_all(['td', 'th']) for r in table_div.find_all('tr')]
     print('{} infobox rows found for {}.'.format(len(rows), name))
     for row in rows:
@@ -271,19 +297,16 @@ def get_abil_data(name, url):
                     print('before: {}: {}'.format(key, val))
                     key, val = func(key, val)
                     print('after: {}: {}'.format(key, val))
-            if key and val:
+            if key and not key.isspace() and not val.isspace():
                 data[key] = val
 
-        data['Uses'] = ' '.join((data.get('Uses', ''),
-                                 data.get('Restoration', '')))
-        data.pop('Restoration', None)
+    data['Uses'] = ' '.join((data['Uses'], data['Restoration']))
+    for k in USELESS_KEYS:
+        data.pop(k, None)
 
     description_p = table_div.find_next_sibling('p')
     if description_p:
-        description = get_text(description_p)
-        data['Description'] = description
-        if not data.get('Effects', ''):
-            data['Effects'] = description
+        data['Description'] = get_text(description_p)
     else:
         print('Description paragraph not found at {}'.format(url))
 
@@ -323,7 +346,7 @@ def write_to_csv(data, file_path):
     constant as column headers.
     '''
     print('writing {} rows to CSV'.format(len(data)))
-    fieldnames = list({k for row in data for k in row.keys()})
+    fieldnames = list({k for row in data for k in row.keys() if k})
     i = fieldnames.index('Ability Name')
     an = fieldnames.pop(i)
     fieldnames.insert(0, an)
