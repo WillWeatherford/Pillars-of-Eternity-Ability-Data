@@ -7,9 +7,18 @@
 # better use of Type (Talent, wizard spell, priest spell, aura, exhortation,
 #    phrase, invocation)
 # decoding of percentage and degree signs
-# merge "Changes" with "Effects"
+# merge "Changes" with "Effects" ?
 
 # fix:
+# Damage : [[has damage::18-35 + Might*2% (Extra Damage)]]
+
+# Fieldnames
+
+# Ability Name    Requirements    Casting Time    Damage  Learning costs
+# Max. stack  Area/Target Type    Resources   Accuracy    Damage Type
+# Influenced Talent   Activation  Linger  Uses    Effects Interrupt
+# Activation Requirements Class   Damage type Level   Ability level
+# Range   Changes Defended by Influenced Item Influenced Ability  Duration
 
 
 import re
@@ -55,7 +64,7 @@ TARGETS = [
 
 CPS_KEYS = [
     'Value', 'Equipment slot', 'Combat Type', 'Abilities', 'Enchantment',
-    'Bonus', 'Handing'
+    'Bonus', 'Handing', 'Enhancements', 'Max. stack'
 ]
 
 USELESS_KEYS = [
@@ -64,7 +73,7 @@ USELESS_KEYS = [
 
 USELESS_KEYS.extend(CPS_KEYS)
 
-HAS = ('defense', 'damage type', 'duration', 'effect(s)?')
+HAS = ('damage', 'defense', 'damage type', 'duration', 'effect(s)?')
 
 KEY_PATTERNS = {
     r"^(Internal name|')$":
@@ -86,7 +95,7 @@ KEY_PATTERNS = {
         lambda k, v: ('Resources', ' '.join((v, k))),
 
     r'^(Learned)$':
-        lambda k, v: ('Level', ''.join([c for c in v if c.isdigit()])),
+        lambda k, v: ('Char Level', ''.join([c for c in v if c.isdigit()])),
 
     r'^Group$':
     lambda k, v: ('Class', re.sub(
@@ -94,12 +103,21 @@ KEY_PATTERNS = {
                   lambda m: m.group('class'), v, flags=re.I)),
 
     r'^(Duration|Defended by|Damage(\stype)?|Effect(s)?)$':
-        lambda k, v: (k, re.sub(
+        lambda k, v: (k.capitalize(), re.sub(
             r'^\[\[has (' + r'|'.join(HAS) + ')::(?P<value>[^\]]+)\]\]',
             lambda m: re.sub(r'ignores Armor', 'Raw', m.group('value'),
                              flags=re.I),
             v, flags=re.I)),
 }
+
+HAS_PAT = r'^\[\[has (' + r'|'.join(HAS) + ')::(?P<value>[^\]]+)\]\]'
+D_EXAMPLE = '[[has damage::1-6 + Might*2% (Extra Damage)]]'
+RESULT = '1-6 + Might*2% (Extra Damage)'
+
+assert re.match(r'Damage(\stype)?', 'Damage')
+assert re.match(r'Damage(\stype)?', 'Damage type')
+assert re.match(HAS_PAT, D_EXAMPLE)
+assert re.sub(HAS_PAT, lambda m: m.group('value'), D_EXAMPLE) == RESULT
 
 
 class ArgMatch(argparse.Action):
@@ -202,7 +220,7 @@ def query(file_path, verbosity=0, name=None, classes=CLASSES,
             and row['Class'] in classes
             and row['Damage type'] in damage_types
             and row['Defended by'] in defenses
-            and row['Area/Target'] in targets
+            and row['Area/target'] in targets
             ]
     print('{} Query Results Found:'.format(len(data)))
     for row in data:
@@ -250,19 +268,6 @@ def scrape_wiki(file_path, test=False, classes=CLASSES, num=9999,
     write_to_csv(final_data, file_path)
 
 
-def get_char_class_urls(classes):
-    return [CLASS_ABIL_SUB.format(c) for c in classes]
-
-
-def get_abil_urls(url, div_attrs={}, link_attrs={}):
-    page_soup = soup_from_url(url)
-    div = page_soup.find('div', attrs={'id': CAT_ID})
-    links = div.find_all('a')
-    urls = {get_text(l): ''.join((MAIN_URL, l.get('href'))) for l in links}
-    return {k: v for k, v in urls.items()
-            if all((k, v, not k.isspace(), not v.isspace()))}
-
-
 def soup_from_url(url, tries=0):
     # print('Requesting {}...'.format(url))
     time.sleep(DELAY)
@@ -274,6 +279,19 @@ def soup_from_url(url, tries=0):
         if tries >= MAX_TRIES:
             raise e
         return soup_from_url(url, tries + 1)
+
+
+def get_char_class_urls(classes):
+    return [CLASS_ABIL_SUB.format(c) for c in classes]
+
+
+def get_abil_urls(url, div_attrs={}, link_attrs={}):
+    page_soup = soup_from_url(url)
+    div = page_soup.find('div', attrs={'id': CAT_ID})
+    links = div.find_all('a')
+    urls = {get_text(l): ''.join((MAIN_URL, l.get('href'))) for l in links}
+    return {k: v for k, v in urls.items()
+            if all((k, v, not k.isspace(), not v.isspace()))}
 
 
 def get_abil_data(name, url):
@@ -303,6 +321,10 @@ def get_abil_data(name, url):
     data['Uses'] = ' '.join((data['Uses'], data['Restoration']))
     for k in USELESS_KEYS:
         data.pop(k, None)
+
+    # if page_soup finds Talent, data['Type'] = 'Talent'
+    # Aura; Exhortation
+    # Else data['Type'] = 'Ability'
 
     description_p = table_div.find_next_sibling('p')
     if description_p:
