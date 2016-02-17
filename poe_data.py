@@ -13,6 +13,7 @@ import re
 import os
 import csv
 import time
+import json
 import random
 import requests
 import argparse
@@ -35,6 +36,7 @@ CHAR_CLASS_LINK_ID = ' '.join(('CategoryTreeLabel',
 CAT_ID = 'mw-pages'
 
 CSV_PATH = os.path.join('./', 'poe_abil_data.csv')
+JSON_PATH = os.path.join('./', 'poe_abil_data.txt')
 
 ABIL_TYPES = [
     'Talent', 'Spell', 'Power', 'Phrase', 'Invocation', 'Command', 'Aura'
@@ -146,11 +148,15 @@ KEY_PATTERNS = [
 
     # Range: standardize 10.0m, 10, 10 m, --> 10m
     # Requirements: move level to "Character Level"
-
 ]
 
-list_pat = lambda l: r'(' + '|'.join(l) + ')'
-group_list_pat = lambda l: list_pat([r'(?P<{}>{})'.format(k, p) for k, p in l])
+
+def list_pat(l):
+    return r'(' + '|'.join(l) + ')'
+
+
+def group_list_pat(l):
+    return list_pat([r'(?P<{}>{})'.format(k, p) for k, p in l])
 
 ABIL_TYPES_PATTERN = list_pat(ABIL_TYPES)
 
@@ -170,35 +176,14 @@ TARGET_PATTERNS = [
     ('Target', r'single|target|an emeny|an ally'),
 ]
 
+TARGETS = [' '.join((a, t))
+           for a in ALIGN_PATTERNS[:3] for t in TARGET_PATTERNS]
+TARGETS.extend(dict(ALIGN_PATTERNS).keys())
+TARGETS.extend(dict(TARGET_PATTERNS).keys())
+
 ALIGN_PATTERNS = group_list_pat(ALIGN_PATTERNS)
 TARGET_PATTERNS = group_list_pat(TARGET_PATTERNS)
 AREA_PATTERN = r'(?P<radius>\d{1,2}(\.\d{1,2})?)(\s)?m?(\s(wall|radius|circle|area(\sof\seffect)?|aoe))?'
-
-
-# Improvements:
-#   some spells have multiple target types
-#       split on '+'
-#   30m Wall instead of Radius
-#   if self, no Foe, Ally etc
-def parse_area_target(string):
-    if not string:
-        return ''
-
-    matches = [re.search(pat, string, flags=re.I)
-               for pat in (ALIGN_PATTERNS, TARGET_PATTERNS)]
-    aligns, targets = [', '.join([k for k, v in m.groupdict().items() if v])
-                       if m else '' for m in matches]
-    # types = [[k for k, v in m.groupdict().items() if v][0] if m else '' for m in matches ]
-
-    target_val = join_data(aligns, targets, ' ')
-
-    area_match = re.search(AREA_PATTERN, string, flags=re.I)
-    area_val = ''.join((area_match.group('radius'),
-                        'm Radius')) if area_match else ''
-
-    print('aligns: {}\ntargets: {}\narea: {}\n'.format(aligns, targets,
-                                                       area_val))
-    return target_val, area_val
 
 
 class ArgMatch(argparse.Action):
@@ -228,23 +213,26 @@ def parse_args():
     # "scrape" subcommand and arguments
     scrape_parser = subparser.add_parser('scrape', help='Scrape data from '
                                          'wiki to update local data.')
-    scrape_parser.set_defaults(func=scrape_wiki)
-    scrape_parser.add_argument('-T', '--test', action='store_true',
-                               help='Run in test mode, finding 10 abilities '
-                               'of a random class.')
-    scrape_parser.add_argument('-t', '--talents', action='store_false',
-                               help='Ignore talents in scraping, mostly for '
-                               'testing purposes.')
-    scrape_parser.add_argument('-o', '--overwrite', action='store_true',
-                               help='Overwrite local data with scraped data.')
-    scrape_parser.add_argument('-c', '--classes', type=str, nargs='*',
-                               default=CLASSES, action=ArgMatch,
-                               help='Filter on specific char classes. Separate'
-                               ' classes by spaces, e.g. "Wizard monk".')
+    scrape_parser.set_defaults(func=scrape_wiki_corpus)
+    scrape_parser.set_defaults(output_file=JSON_PATH)
+
+    # "scrape" subcommand and arguments
+    process_parser = subparser.add_parser('process', help='Process scraped '
+                                          'html into CSV data.')
+    process_parser.set_defaults(func=process_html)
+    process_parser.set_defaults(input_file=JSON_PATH)
+    process_parser.set_defaults(output_file=CSV_PATH)
+    process_parser.add_argument('-o', '--overwrite', action='store_true',
+                                help='Overwrite local data with data from '
+                                'latest scraped html data.')
+    process_parser.add_argument('-T', '--test', action='store_true',
+                                help='Run in test mode, finding 10 abilities '
+                                'of a random class.')
 
     # "query" subcommand and arguments
     query_parser = subparser.add_parser('query', help='Query local data.')
     query_parser.set_defaults(func=query)
+    query_parser.set_defaults(input_file=CSV_PATH)
     query_parser.add_argument('-n', '--name', type=str,
                               help='Filter on a specific ability by name.')
     query_parser.add_argument('-c', '--classes', type=str, nargs='*',
@@ -277,101 +265,117 @@ def main(argcheck=False, func=None, **kwargs):
     if argcheck:
         return
     if func:
-        func(CSV_PATH, **kwargs)
+        func(**kwargs)
 
 
-def read_from_csv(file_path):
-    with open(file_path, 'r') as input_csv:
-        reader = csv.DictReader(input_csv)
-        return [row for row in reader]
-
-
-def query(file_path, verbosity=0, name=None, classes=CLASSES,
-          damage_types=DAMAGE_TYPES, defenses=DEFENSES, targets=TARGETS,
-          *args, **kwargs):
-    print('query() called.')
-    data = read_from_csv(file_path)
-    targets = defaults_from_data(data, 'Area/Target')
-    if name:
-        try:
-            print(data[name])
-            return
-        except KeyError:
-            raise KeyError('Ability named "{}" is not found in the database.'
-                           ''.format(name))
-    # data = data.values()
-    data = [row for row in data if row
-            and row['Class'] in classes
-            and row['Damage type'] in damage_types
-            and row['Defended by'] in defenses
-            and row['Area/Target'] in targets
-            ]
-    print('{} Query Results Found:'.format(len(data)))
-    for row in data:
-        if not verbosity:
-            print(row['Ability Name'])
-        else:
-            for k, v in row.items():
-                if v:
-                    print(': '.join((k, v)))
-
-
-def scrape_wiki(file_path, test=False, classes=CLASSES, num=9999,
-                talents=True, overwrite=True, **kwargs):
+def scrape_wiki_corpus(output_file=JSON_PATH, **kwargs):
     '''
-    Makes HTML requests to pillarsofeternity.gamepedia.com, gathering urls
+    Make HTML requests to pillarsofeternity.gamepedia.com, gathering urls
     for each character class, then urls for each ability of that class.
-    Finally returns a list of dictionaries; each dictionary holds the data
-    for an ability.
+    Save HTML of each ability in a JSON.
     '''
-    if test:
-        num = 10
-        classes = [random.choice(CLASSES)]
-
-    char_class_urls = get_char_class_urls(classes)
+    print('scrape_wiki_corpus called')
+    char_class_urls = [CLASS_ABIL_SUB.format(c) for c in CLASSES]
     abil_urls = {name: url for char_class_url in char_class_urls
                  for name, url in get_abil_urls(char_class_url).items()}
 
-    if talents:
-        abil_urls.update(get_abil_urls(TALENT_PAGE))
+    wiki_data = {name: html_from_url(url)
+                 for name, url in abil_urls.items()}
 
-    wiki_data = [get_abil_data(name, url)
-                 for name, url in abil_urls.items()[:num]]
+    write_to_json(wiki_data, output_file)
+
+
+def process_html(input_file=JSON_PATH, output_file=CSV_PATH, test=False,
+                 num=9999, overwrite=True, **kwargs):
+    '''
+    Parse previously scraped and stored HTML.
+    '''
+    if test:
+        num = 10
+
+    with open(input_file, 'r') as json_file:
+        abil_html = json.load(json_file)
+        data = [get_abil_data(name, html)
+                for name, html in abil_html.items()[:num]]
 
     if overwrite:
         local_data = []
     else:
-        local_data = read_from_csv(file_path)
+        local_data = read_from_csv(output_file)
     # if overwrite is true vs false?
     # if overwrite is false:
     # check ability name along with link. if abil name is already in local
     # data, ignore it
-    wiki_data.extend(local_data)
+    data.extend(local_data)
 
-    final_data = filter(None, wiki_data)
+    final_data = filter(None, data)
 
-    write_to_csv(final_data, file_path)
+    write_to_csv(final_data, output_file)
+
+# def scrape_wiki(file_path, test=False, classes=CLASSES, num=9999,
+#                 talents=True, overwrite=True, **kwargs):
+#     '''
+#     Makes HTML requests to pillarsofeternity.gamepedia.com, gathering urls
+#     for each character class, then urls for each ability of that class.
+#     Finally returns a list of dictionaries; each dictionary holds the data
+#     for an ability.
+#     '''
+#     if test:
+#         num = 10
+#         classes = [random.choice(CLASSES)]
+
+#     char_class_urls = get_char_class_urls(classes)
+#     abil_urls = {name: url for char_class_url in char_class_urls
+#                  for name, url in get_abil_urls(char_class_url).items()}
+
+#     if talents:
+#         abil_urls.update(get_abil_urls(TALENT_PAGE))
+
+#     wiki_data = [get_abil_data(name, url)
+#                  for name, url in abil_urls.items()[:num]]
+
+#     if overwrite:
+#         local_data = []
+#     else:
+#         local_data = read_from_csv(file_path)
+#     # if overwrite is true vs false?
+#     # if overwrite is false:
+#     # check ability name along with link. if abil name is already in local
+#     # data, ignore it
+#     wiki_data.extend(local_data)
+
+#     final_data = filter(None, wiki_data)
+
+#     write_to_csv(final_data, file_path)
 
 
-def soup_from_url(url, tries=0):
-    # print('Requesting {}...'.format(url))
+# def soup_from_url(url, tries=0):
+#     print('Requesting {}...'.format(url))
+#     time.sleep(DELAY)
+#     try:
+#         response = requests.get(url)
+#         soup = BeautifulSoup(response.text)
+#         return soup
+#     except requests.RequestException as e:
+#         if tries >= MAX_TRIES:
+#             raise e
+#         return soup_from_url(url, tries + 1)
+
+
+def html_from_url(url, tries=0):
+    print('Requesting {}...'.format(url))
     time.sleep(DELAY)
     try:
         response = requests.get(url)
-        soup = BeautifulSoup(response.text)
-        return soup
+        return response.text
     except requests.RequestException as e:
         if tries >= MAX_TRIES:
             raise e
-        return soup_from_url(url, tries + 1)
-
-
-def get_char_class_urls(classes):
-    return [CLASS_ABIL_SUB.format(c) for c in classes]
+        return html_from_url(url, tries + 1)
 
 
 def get_abil_urls(url, div_attrs={}, link_attrs={}):
-    page_soup = soup_from_url(url)
+    page_soup = BeautifulSoup(html_from_url(url))
     div = page_soup.find('div', attrs={'id': CAT_ID})
     links = div.find_all('a')
     urls = {get_text(l): ''.join((MAIN_URL, l.get('href'))) for l in links}
@@ -379,12 +383,12 @@ def get_abil_urls(url, div_attrs={}, link_attrs={}):
             if all((k, v, not k.isspace(), not v.isspace()))}
 
 
-def get_abil_data(name, url):
-    print('Getting ability data from {}'.format(url))
-    page_soup = soup_from_url(url)
+def get_abil_data(name, html):
+    print('Getting ability data from {}'.format(name))
+    page_soup = BeautifulSoup(html)
     table_div = page_soup.find('table', attrs={'class': 'infobox'})
     if not table_div:
-        print('Table Div not found at {}'.format(url))
+        print('Table Div not found for {}'.format(name))
         return {}
 
     data = defaultdict(str, {'Ability Name': name})
@@ -459,6 +463,37 @@ def get_type(page_soup):
         return ''
 
 
+# Improvements:
+#   some spells have multiple target types
+#       split on '+'
+#   30m Wall instead of Radius
+#   if self, no Foe, Ally etc
+def parse_area_target(string):
+    '''
+    Separate data from the Area/Target field into more useful data fields.
+
+    Returns target value and area value.
+    '''
+    if not string:
+        return ''
+
+    matches = [re.search(pat, string, flags=re.I)
+               for pat in (ALIGN_PATTERNS, TARGET_PATTERNS)]
+    aligns, targets = [', '.join([k for k, v in m.groupdict().items() if v])
+                       if m else '' for m in matches]
+    # types = [[k for k, v in m.groupdict().items() if v][0] if m else '' for m in matches ]
+
+    target_val = join_data(aligns, targets, ' ')
+
+    area_match = re.search(AREA_PATTERN, string, flags=re.I)
+    area_val = ''.join((area_match.group('radius'),
+                        'm Radius')) if area_match else ''
+
+    print('aligns: {}\ntargets: {}\narea: {}\n'.format(aligns, targets,
+                                                       area_val))
+    return target_val, area_val
+
+
 def write_to_csv(data, file_path):
     '''
     Writes data to a CSV document, using fieldnames argument
@@ -474,6 +509,50 @@ def write_to_csv(data, file_path):
         writer = csv.DictWriter(output_csv, fieldnames)
         writer.writeheader()
         writer.writerows(data)
+
+
+def write_to_json(data, file_path):
+    '''
+    Writes data to a CSV document, using fieldnames argument
+    constant as column headers.
+    '''
+    with open(file_path, 'w') as output_txt:
+        json.dump(data, output_txt)
+
+
+def query(file_path, verbosity=0, name=None, classes=CLASSES,
+          damage_types=DAMAGE_TYPES, defenses=DEFENSES, targets=TARGETS,
+          *args, **kwargs):
+    print('query() called.')
+    data = read_from_csv(file_path)
+    if name:
+        try:
+            print(data[name])
+            return
+        except KeyError:
+            raise KeyError('Ability named "{}" is not found in the database.'
+                           ''.format(name))
+    # data = data.values()
+    data = [row for row in data if row
+            and row['Class'] in classes
+            and row['Damage type'] in damage_types
+            and row['Defended by'] in defenses
+            and row['Area/Target'] in targets
+            ]
+    print('{} Query Results Found:'.format(len(data)))
+    for row in data:
+        if not verbosity:
+            print(row['Ability Name'])
+        else:
+            for k, v in row.items():
+                if v:
+                    print(': '.join((k, v)))
+
+
+def read_from_csv(file_path):
+    with open(file_path, 'r') as input_csv:
+        reader = csv.DictReader(input_csv)
+        return [row for row in reader]
 
 
 if __name__ == '__main__':
