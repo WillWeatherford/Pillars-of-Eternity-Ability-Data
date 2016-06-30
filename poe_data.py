@@ -1,3 +1,12 @@
+"""Pillars of Eternity Character Abilities Data Parser.
+
+A 3-part program:
+    "scrape" - downloads HTML data from the Pillars of Eternity wiki to save
+               locally.
+    "process" - parses saved HTML data into CSV file.
+    "query" - command-line query of data saved in CSV file.
+"""
+
 # to do:
 # better result printing for query
 # nice formatted excel data? colors, sorted, specific col header values
@@ -172,11 +181,11 @@ ALIGN_PATTERNS = [
 TARGET_PATTERNS = [
     ('Cone', r'cone'),
     ('Aura', r'from\scaster|aura'),
-    ('AoE', r'aoe|circle|area|radius'),
-    ('Target', r'single|target|an emeny|an ally'),
+    ('AoE', r'aoe|circle|area|radius|wall'),
+    ('Target', r'single|target|an enemy|an ally'),
 ]
 
-TARGETS = [' '.join((a, t))
+TARGETS = [' '.join((a[0], t[0]))
            for a in ALIGN_PATTERNS[:3] for t in TARGET_PATTERNS]
 TARGETS.extend(dict(ALIGN_PATTERNS).keys())
 TARGETS.extend(dict(TARGET_PATTERNS).keys())
@@ -312,55 +321,6 @@ def process_html(input_file=JSON_PATH, output_file=CSV_PATH, test=False,
 
     write_to_csv(final_data, output_file)
 
-# def scrape_wiki(file_path, test=False, classes=CLASSES, num=9999,
-#                 talents=True, overwrite=True, **kwargs):
-#     '''
-#     Makes HTML requests to pillarsofeternity.gamepedia.com, gathering urls
-#     for each character class, then urls for each ability of that class.
-#     Finally returns a list of dictionaries; each dictionary holds the data
-#     for an ability.
-#     '''
-#     if test:
-#         num = 10
-#         classes = [random.choice(CLASSES)]
-
-#     char_class_urls = get_char_class_urls(classes)
-#     abil_urls = {name: url for char_class_url in char_class_urls
-#                  for name, url in get_abil_urls(char_class_url).items()}
-
-#     if talents:
-#         abil_urls.update(get_abil_urls(TALENT_PAGE))
-
-#     wiki_data = [get_abil_data(name, url)
-#                  for name, url in abil_urls.items()[:num]]
-
-#     if overwrite:
-#         local_data = []
-#     else:
-#         local_data = read_from_csv(file_path)
-#     # if overwrite is true vs false?
-#     # if overwrite is false:
-#     # check ability name along with link. if abil name is already in local
-#     # data, ignore it
-#     wiki_data.extend(local_data)
-
-#     final_data = filter(None, wiki_data)
-
-#     write_to_csv(final_data, file_path)
-
-
-# def soup_from_url(url, tries=0):
-#     print('Requesting {}...'.format(url))
-#     time.sleep(DELAY)
-#     try:
-#         response = requests.get(url)
-#         soup = BeautifulSoup(response.text)
-#         return soup
-#     except requests.RequestException as e:
-#         if tries >= MAX_TRIES:
-#             raise e
-#         return soup_from_url(url, tries + 1)
-
 
 def html_from_url(url, tries=0):
     print('Requesting {}...'.format(url))
@@ -384,16 +344,22 @@ def get_abil_urls(url, div_attrs={}, link_attrs={}):
 
 
 def get_abil_data(name, html):
-    print('Getting ability data from {}'.format(name))
+    try:
+        print('Getting ability data from {}'.format(name))
+    except UnicodeEncodeError as e:
+        print e
     page_soup = BeautifulSoup(html)
     table_div = page_soup.find('table', attrs={'class': 'infobox'})
     if not table_div:
-        print('Table Div not found for {}'.format(name))
+        # print('Table Div not found for {}'.format(name))
         return {}
 
     data = defaultdict(str, {'Ability Name': name})
     rows = [r.find_all(['td', 'th']) for r in table_div.find_all('tr')]
-    print('{} infobox rows found for {}.'.format(len(rows), name))
+    try:
+        print('{} infobox rows found for {}.'.format(len(rows), name))
+    except UnicodeEncodeError as e:
+        print e.message
     for row in rows:
         if len(row) == 2:
             key = get_text(row[0])
@@ -423,9 +389,10 @@ def get_abil_data(name, html):
 
 
 def get_text(element):
-    '''
+    """
     Gather and parse text from a table cell element from a wiki info table.
-    '''
+    """
+
     error = element.find('span', attrs={'data-title': 'Error'})
     if error:
         error.decompose()
@@ -468,6 +435,8 @@ def get_type(page_soup):
 #       split on '+'
 #   30m Wall instead of Radius
 #   if self, no Foe, Ally etc
+#   Twin Stones
+#   Torment's Reach
 def parse_area_target(string):
     '''
     Separate data from the Area/Target field into more useful data fields.
@@ -483,6 +452,8 @@ def parse_area_target(string):
                        if m else '' for m in matches]
     # types = [[k for k, v in m.groupdict().items() if v][0] if m else '' for m in matches ]
 
+    if aligns == ['Self']:
+        targets = ['']
     target_val = join_data(aligns, targets, ' ')
 
     area_match = re.search(AREA_PATTERN, string, flags=re.I)
