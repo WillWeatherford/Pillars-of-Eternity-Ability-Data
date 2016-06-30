@@ -208,10 +208,7 @@ def defaults_from_data(data, key):
 
 
 def parse_args():
-    '''
-    Parse command line arguments into **kwargs for the main function to
-    distribute throughout the program, specifying data queries.
-    '''
+    """Parse command line arguments into **kwargs passed into main function."""
     parser = argparse.ArgumentParser(
         description='Take specifications on PoE data to find.')
     parser.add_argument('-A', '--argcheck', action='store_true',
@@ -225,7 +222,7 @@ def parse_args():
     scrape_parser.set_defaults(func=scrape_wiki_corpus)
     scrape_parser.set_defaults(output_file=JSON_PATH)
 
-    # "scrape" subcommand and arguments
+    # "process" subcommand and arguments
     process_parser = subparser.add_parser('process', help='Process scraped '
                                           'html into CSV data.')
     process_parser.set_defaults(func=process_html)
@@ -296,9 +293,7 @@ def scrape_wiki_corpus(output_file=JSON_PATH, **kwargs):
 
 def process_html(input_file=JSON_PATH, output_file=CSV_PATH, test=False,
                  num=9999, overwrite=True, **kwargs):
-    '''
-    Parse previously scraped and stored HTML.
-    '''
+    """Parse previously scraped and stored HTML."""
     if test:
         num = 10
 
