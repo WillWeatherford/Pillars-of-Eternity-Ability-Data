@@ -23,7 +23,7 @@ import os
 import csv
 import time
 import json
-import random
+# import random
 import requests
 import argparse
 from collections import defaultdict
@@ -62,7 +62,8 @@ TARGETS = ['AoE', 'Caster', 'Target']
 
 
 FIELDNAMES = [
-    'Ability Name', 'Class', 'Type', 'Character Level', 'Ability Level', 'Learning Costs', 'Requirements',
+    'Ability Name', 'Class', 'Type', 'Character Level', 'Ability Level',
+    'Learning Costs', 'Requirements',
     'Activation', 'Uses', 'Resources', 'Activation Requirements',
     'Area/Target', 'Range', 'Accuracy', 'Casting Time',
     'Defended by', 'Damage Type', 'Damage', 'Interrupt',
@@ -161,10 +162,12 @@ KEY_PATTERNS = [
 
 
 def list_pat(l):
+    """Return regex pattern of list of strings joined by pipe 'or' operator."""
     return r'(' + '|'.join(l) + ')'
 
 
 def group_list_pat(l):
+    """Return regex pattern of named pattern groups joined by pipe operator."""
     return list_pat([r'(?P<{}>{})'.format(k, p) for k, p in l])
 
 ABIL_TYPES_PATTERN = list_pat(ABIL_TYPES)
