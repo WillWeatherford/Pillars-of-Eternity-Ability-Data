@@ -278,11 +278,13 @@ def main(argcheck=False, func=None, **kwargs):
 
 
 def scrape_wiki_corpus(output_file=JSON_PATH, **kwargs):
-    '''
-    Make HTML requests to pillarsofeternity.gamepedia.com, gathering urls
+    """
+    Scrape data from Pillars of Eternity Wiki.
+
+    Make HTML requests to pillarsofeternity.gamepedia.com. gathering urls
     for each character class, then urls for each ability of that class.
     Save HTML of each ability in a JSON.
-    '''
+    """
     print('scrape_wiki_corpus called')
     char_class_urls = [CLASS_ABIL_SUB.format(c) for c in CLASSES]
     abil_urls = {name: url for char_class_url in char_class_urls
@@ -314,13 +316,11 @@ def process_html(input_file=JSON_PATH, output_file=CSV_PATH, test=False,
     # check ability name along with link. if abil name is already in local
     # data, ignore it
     data.extend(local_data)
-
-    final_data = filter(None, data)
-
-    write_to_csv(final_data, output_file)
+    write_to_csv(filter(None, data), output_file)
 
 
 def html_from_url(url, tries=0):
+    """Scrape all HTML from provided url."""
     print('Requesting {}...'.format(url))
     time.sleep(DELAY)
     try:
@@ -333,7 +333,8 @@ def html_from_url(url, tries=0):
 
 
 def get_abil_urls(url, div_attrs={}, link_attrs={}):
-    page_soup = BeautifulSoup(html_from_url(url))
+    """Extract all ability urls from category div in provided url."""
+    page_soup = BeautifulSoup(html_from_url(url), 'html.parser')
     div = page_soup.find('div', attrs={'id': CAT_ID})
     links = div.find_all('a')
     urls = {get_text(l): ''.join((MAIN_URL, l.get('href'))) for l in links}
@@ -342,11 +343,12 @@ def get_abil_urls(url, div_attrs={}, link_attrs={}):
 
 
 def get_abil_data(name, html):
+    """Extract data from ability side table on ability page."""
     try:
         print('Getting ability data from {}'.format(name))
     except UnicodeEncodeError as e:
-        print e
-    page_soup = BeautifulSoup(html)
+        print(e)
+    page_soup = BeautifulSoup(html, 'html.parser')
     table_div = page_soup.find('table', attrs={'class': 'infobox'})
     if not table_div:
         # print('Table Div not found for {}'.format(name))
@@ -387,10 +389,7 @@ def get_abil_data(name, html):
 
 
 def get_text(element):
-    """
-    Gather and parse text from a table cell element from a wiki info table.
-    """
-
+    """Gather and parse text from table cell element from wiki info table."""
     error = element.find('span', attrs={'data-title': 'Error'})
     if error:
         error.decompose()
@@ -400,10 +399,10 @@ def get_text(element):
         br.replace_with(comma_string)
 
     if isinstance(element, NavigableString):
-        text = unicode(element, errors='ignore')
+        text = str(unicode(element, errors='ignore'))
     else:
         text = element.get_text()
-    text = text.replace('\n', ' ').strip().encode('utf8', errors='ignore')
+    text = text.replace('\n', ' ').strip().encode('ascii', errors='ignore')
     text = ''.join((text[:1].title(), text[1:]))
     # text = text.replace(u'\xb0', u'degree')
     # text = re.sub(HAS_VALUE_PATTERN, lambda m: m.group('value'), text)
@@ -411,6 +410,7 @@ def get_text(element):
 
 
 def join_data(val1, val2, joiner):
+    """Join two values on specified joiner, if both are not empty strings."""
     if not (val1 and val2):
         joiner = ''
     return joiner.join((val1, val2))
@@ -436,11 +436,11 @@ def get_type(page_soup):
 #   Twin Stones
 #   Torment's Reach
 def parse_area_target(string):
-    '''
+    """
     Separate data from the Area/Target field into more useful data fields.
 
-    Returns target value and area value.
-    '''
+    Return target value and area value.
+    """
     if not string:
         return ''
 
@@ -464,27 +464,20 @@ def parse_area_target(string):
 
 
 def write_to_csv(data, file_path):
-    '''
-    Writes data to a CSV document, using fieldnames argument
-    constant as column headers.
-    '''
+    """Write data to a CSV document, getting column headers from data."""
     print('writing {} rows to CSV'.format(len(data)))
     fieldnames = list({k for row in data for k in row.keys() if k})
-    i = fieldnames.index('Ability Name')
-    an = fieldnames.pop(i)
-    fieldnames.insert(0, an)
+    fieldnames.remove('Ability Name')
+    fieldnames.insert(0, 'Ability Name')
     print('Fieldnames:\n{}'.format(fieldnames))
-    with open(file_path, 'wb') as output_csv:
+    with open(file_path, 'w') as output_csv:
         writer = csv.DictWriter(output_csv, fieldnames)
         writer.writeheader()
         writer.writerows(data)
 
 
 def write_to_json(data, file_path):
-    '''
-    Writes data to a CSV document, using fieldnames argument
-    constant as column headers.
-    '''
+    """Write data to JSON document."""
     with open(file_path, 'w') as output_txt:
         json.dump(data, output_txt)
 
@@ -492,6 +485,7 @@ def write_to_json(data, file_path):
 def query(file_path, verbosity=0, name=None, classes=CLASSES,
           damage_types=DAMAGE_TYPES, defenses=DEFENSES, targets=TARGETS,
           *args, **kwargs):
+    """Query stored ability data filtered on specified fields."""
     print('query() called.')
     data = read_from_csv(file_path)
     if name:
@@ -502,11 +496,11 @@ def query(file_path, verbosity=0, name=None, classes=CLASSES,
             raise KeyError('Ability named "{}" is not found in the database.'
                            ''.format(name))
     # data = data.values()
-    data = [row for row in data if row
-            and row['Class'] in classes
-            and row['Damage type'] in damage_types
-            and row['Defended by'] in defenses
-            and row['Area/Target'] in targets
+    data = [row for row in data if row and
+            row['Class'] in classes and
+            row['Damage type'] in damage_types and
+            row['Defended by'] in defenses and
+            row['Area/Target'] in targets
             ]
     print('{} Query Results Found:'.format(len(data)))
     for row in data:
@@ -519,6 +513,7 @@ def query(file_path, verbosity=0, name=None, classes=CLASSES,
 
 
 def read_from_csv(file_path):
+    """Read rows of data from CSV."""
     with open(file_path, 'r') as input_csv:
         reader = csv.DictReader(input_csv)
         return [row for row in reader]
