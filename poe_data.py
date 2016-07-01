@@ -200,7 +200,7 @@ AREA_PATTERN = r'(?P<radius>\d{1,2}(\.\d{1,2})?)(\s)?m?(\s(wall|radius|circle|ar
 
 class ArgMatch(argparse.Action):
     def __call__(self, parser, namespace, values, option_string):
-        print 'ArgMatch called; self.default: {}'.format(self.default)
+        print('ArgMatch called; self.default: {}'.format(self.default))
         new_values = [d for d in self.default for v in values
                       if len(v) > 1 and re.compile(v, re.I).match(d)]
         setattr(namespace, self.dest, new_values)
@@ -305,7 +305,7 @@ def process_html(input_file=JSON_PATH, output_file=CSV_PATH, test=False,
     with open(input_file, 'r') as json_file:
         abil_html = json.load(json_file)
         data = [get_abil_data(name, html)
-                for name, html in abil_html.items()[:num]]
+                for name, html in list(abil_html.items())[:num]]
 
     if overwrite:
         local_data = []
@@ -359,7 +359,7 @@ def get_abil_data(name, html):
     try:
         print('{} infobox rows found for {}.'.format(len(rows), name))
     except UnicodeEncodeError as e:
-        print e.message
+        print(e.message)
     for row in rows:
         if len(row) == 2:
             key = get_text(row[0])
@@ -399,10 +399,10 @@ def get_text(element):
         br.replace_with(comma_string)
 
     if isinstance(element, NavigableString):
-        text = str(unicode(element, errors='ignore'))
+        text = str(element, errors='ignore')
     else:
         text = element.get_text()
-    text = text.replace('\n', ' ').strip().encode('ascii', errors='ignore')
+    text = text.replace('\n', ' ').strip()
     text = ''.join((text[:1].title(), text[1:]))
     # text = text.replace(u'\xb0', u'degree')
     # text = re.sub(HAS_VALUE_PATTERN, lambda m: m.group('value'), text)
@@ -465,7 +465,7 @@ def parse_area_target(string):
 
 def write_to_csv(data, file_path):
     """Write data to a CSV document, getting column headers from data."""
-    print('writing {} rows to CSV'.format(len(data)))
+    # print('writing {} rows to CSV'.format(len(data)))
     fieldnames = list({k for row in data for k in row.keys() if k})
     fieldnames.remove('Ability Name')
     fieldnames.insert(0, 'Ability Name')
